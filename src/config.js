@@ -8,7 +8,7 @@
  * `brickproof-adb set` writes it.
  * Precedence: flags (and the stdio directory arguments) > env > file > defaults.
  * On Windows, with file_roots set by no source, loadConfig() reads where the
- * Downloads folder is from the registry (powershell.exe, 5 s at most).
+ * Downloads folder is from the registry (powershell.exe, 15 s at most).
  *
  * The settings directories follow the operating system:
  *   Linux    config $XDG_CONFIG_HOME/brickproof-adb (~/.config/brickproof-adb)
@@ -130,24 +130,39 @@ function expandWindowsEnv(value, env) {
   });
 }
 
-// The stdout of a Windows PowerShell script, or null on any failure. The
+// The longest the registry read may take: powershell.exe starts slowly on a
+// busy or freshly booted machine.
+const REGISTRY_TIMEOUT_MS = 15000;
+
+// A Windows PowerShell script: { stdout } or { error: why it failed }. The
 // script goes in as UTF-16 (-EncodedCommand), so no quoting or code page
 // touches it.
-function runPowerShell(script, { env = process.env, timeout = 5000 } = {}) {
+function runPowerShellResult(script, { env = process.env, timeout = REGISTRY_TIMEOUT_MS } = {}) {
   try {
     const root = envValue(env, 'SystemRoot') || envValue(env, 'SYSTEMROOT') || envValue(env, 'windir') || 'C:\\Windows';
     const ps = path.win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
     const r = require('child_process').spawnSync(ps,
       ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
       { encoding: 'ascii', timeout, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
-    return r.error || r.status !== 0 ? null : r.stdout;
-  } catch { return null; }
+    if (r.error) return { error: r.error.code === 'ETIMEDOUT' ? `timed out after ${+(timeout / 1000).toFixed(3)} s` : `powershell.exe could not run: ${r.error.code || r.error.message}` };
+    if (r.status !== 0) return { error: r.signal ? `powershell.exe was stopped by ${r.signal}` : `powershell.exe exited with code ${r.status}` };
+    return { stdout: r.stdout };
+  } catch (e) { return { error: `powershell.exe could not run: ${e.code || e.message}` }; }
 }
 
-/** The Downloads values of the registry, or null when they cannot be read (5 s at most). */
+// The stdout of a Windows PowerShell script, or null on any failure.
+function runPowerShell(script, opts) {
+  const r = runPowerShellResult(script, opts);
+  return r.error ? null : r.stdout;
+}
+
+/**
+ * The Downloads values of the registry, { user, shell }, or { error } when
+ * they cannot be read (REGISTRY_TIMEOUT_MS at most).
+ */
 function readShellFolders({ env = process.env } = {}) {
-  const out = runPowerShell(SHELL_FOLDERS_SCRIPT, { env });
-  return out === null ? null : parseShellFolders(out);
+  const r = runPowerShellResult(SHELL_FOLDERS_SCRIPT, { env });
+  return r.error ? { error: r.error } : parseShellFolders(r.stdout);
 }
 
 /**
@@ -157,16 +172,28 @@ function readShellFolders({ env = process.env } = {}) {
  * (environment, else ~/.config/user-dirs.dirs, where a localized system names
  * it), else ~/Downloads. null when it does not exist.
  */
-function downloadsDir({ platform = process.platform, env = process.env, homedir = os.homedir(), isDir = isDirectory,
+function downloadsDir(opts = {}) {
+  return findDownloads(opts).dir;
+}
+
+/**
+ * downloadsDir() with the reason a Windows registry read failed:
+ * { dir, registryError, fallback }; fallback is <home>/Downloads, the place
+ * looked at last.
+ */
+function findDownloads({ platform = process.platform, env = process.env, homedir = os.homedir(), isDir = isDirectory,
   readFile = p => fs.readFileSync(p, 'utf8'), shellFolders = readShellFolders } = {}) {
   const P = pathFor(platform);
-  let dir = P.join(homedir, 'Downloads');
+  const fallback = P.join(homedir, 'Downloads');
+  let dir = fallback;
+  let registryError = null;
   if (platform === 'win32') {
     const sf = shellFolders({ env }) || {};
+    if (sf.error) registryError = sf.error;
     for (const v of [sf.user, sf.shell]) {
       if (typeof v !== 'string' || !v) continue;
       const e = expandWindowsEnv(v, env);
-      if (P.isAbsolute(e) && isDir(e)) return e;
+      if (P.isAbsolute(e) && isDir(e)) return { dir: e, registryError, fallback };
     }
   }
   if (platform !== 'win32' && platform !== 'darwin') {
@@ -186,7 +213,7 @@ function downloadsDir({ platform = process.platform, env = process.env, homedir 
       if (P.isAbsolute(e) && P.resolve(e) !== P.resolve(homedir)) dir = e;
     }
   }
-  return isDir(dir) ? dir : null;
+  return { dir: isDir(dir) ? dir : null, registryError, fallback };
 }
 
 function isDirectory(p) {
@@ -395,13 +422,19 @@ function loadConfig({ env = process.env, cwd = process.cwd(), platform = process
     if (bad.length) throw new ConfigError(`env BRICKPROOF_FILE_ROOTS: every entry must be an absolute path (separator "${path.delimiter}"): ${bad.map(b => JSON.stringify(b)).join(', ')}`);
   }
   const flagRoots = flags.file_roots && flags.file_roots.length ? flags.file_roots.map(r => path.resolve(cwd, r)) : undefined;
-  const downloads = flagRoots || envRoots || file.file_roots ? null : downloadsDir({ platform, env, homedir, isDir, shellFolders });
+  const found = flagRoots || envRoots || file.file_roots ? null : findDownloads({ platform, env, homedir, isDir, shellFolders });
+  const downloads = found && found.dir;
+  // A failed registry read is said, not passed over: the folder found, or not
+  // found, may not be the one the system has for Downloads.
+  const registryNote = found && found.registryError
+    ? `the registry could not be read: ${found.registryError}; ${found.fallback} ${downloads ? 'used' : 'not found'}`
+    : null;
   pick('file_roots',
     [flagRoots, 'arguments'],
     [envRoots, 'env BRICKPROOF_FILE_ROOTS'],
     [file.file_roots, fileSrc],
-    [downloads ? [downloads] : undefined, 'default'],
-    [[], 'default: no Downloads folder found']);
+    [downloads ? [downloads] : undefined, registryNote ? `default: ${registryNote}` : 'default'],
+    [[], registryNote ? `default: ${registryNote}` : 'default: no Downloads folder found']);
   settings.file_roots = settings.file_roots.map(r => path.resolve(r));
 
   pick('state_dir',
@@ -431,6 +464,8 @@ function loadConfig({ env = process.env, cwd = process.cwd(), platform = process
     searched: candidates.map(c => c.path),
     configDir: dirs.configDir,
     writeTarget: candidates[0].path,
+    // For a warning line at start: why the Downloads folder may be wrong.
+    downloadsWarning: registryNote ? `the Downloads folder is uncertain: ${registryNote}; set file_roots to choose the folder` : null,
   };
 }
 
@@ -556,7 +591,7 @@ function ensureStateDir(dir) {
 
 module.exports = {
   DEFAULTS, ConfigError, APP_DIR, KEYS, ENV_OF, SETTABLE,
-  platformDirs, downloadsDir, parseShellFolders, expandWindowsEnv, readShellFolders, runPowerShell, parseConfig, configCandidates, loadConfig, ensureStateDir, splitRoots, splitDevices, envBool,
+  platformDirs, downloadsDir, findDownloads, REGISTRY_TIMEOUT_MS, parseShellFolders, expandWindowsEnv, readShellFolders, runPowerShell, runPowerShellResult, parseConfig, configCandidates, loadConfig, ensureStateDir, splitRoots, splitDevices, envBool,
   parseSubnet, ipToInt, intToIp, isPrivateIp,
   settingAction, settingHints, settingValue, writeSetting,
 };

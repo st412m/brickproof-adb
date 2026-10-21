@@ -38,13 +38,33 @@ test('check --offline without adb: the image pipeline runs, adb is a problem, ex
   assert.match(r.stdout, /\n {2}1080x2340 -> 473x1024 in \d+ ms, .* \(dark\)\n/);
   assert.match(r.stdout, /problems:\n {2}adb_path .* does not exist or cannot be run\. Run `brickproof-adb get-adb`/);
   assert.ok(!/devices:/.test(r.stdout), 'no device listing with --offline');
-  // On Windows the registry may name a Downloads folder outside the test home
-  // (a moved folder): then that folder is the default.
-  const real = C.downloadsDir({ env: isolatedEnv(home), homedir: home });
-  if (real) assert.ok(r.stdout.includes(`file_roots (default):\n  ${real} — `), r.stdout);
-  else assert.match(r.stdout, /file_roots: none \(default: no Downloads folder found\) — adb_push, adb_pull and adb_install refuse until it is set/);
+  const want = expectedDefault(home, r.stdout);
+  if (want.dir) assert.ok(r.stdout.includes(`file_roots (${want.source}):\n  ${want.dir} — `), r.stdout);
+  else if (want.dir === null) assert.ok(r.stdout.includes(`file_roots: none (${want.source}) — adb_push, adb_pull and adb_install refuse until it is set`), r.stdout);
   assert.match(r.stdout, /\nstore: .* \(default: <state_dir>\/snapshots\) — /);
 });
+
+/**
+ * What the CLI started in this test home should take as the default file
+ * root: { dir, source }. On Windows the registry may name a folder outside
+ * the home (a moved Downloads folder). A registry read that failed in the
+ * child must be said in `out`, with its reason; then <home>\Downloads is the
+ * fallback. dir undefined: the child read the registry and this test's own
+ * read failed, so the folder cannot be compared.
+ */
+function expectedDefault(home, out) {
+  const fallback = path.join(home, 'Downloads');
+  const failed = /the registry could not be read: (.+?); (.+?) (used|not found)/.exec(out);
+  if (failed) {
+    assert.match(failed[1], /^(timed out after 15 s|powershell\.exe .+)$/, 'the reason');
+    assert.equal(failed[2], fallback);
+    const used = failed[3] === 'used';
+    return { dir: used ? fallback : null, source: `default: the registry could not be read: ${failed[1]}; ${fallback} ${failed[3]}` };
+  }
+  const own = C.findDownloads({ env: isolatedEnv(home), homedir: home });
+  if (own.registryError) return { dir: undefined };
+  return own.dir ? { dir: own.dir, source: 'default' } : { dir: null, source: 'default: no Downloads folder found' };
+}
 
 test('check: a missing file root is a problem', async () => {
   const home = tmpDir();
@@ -140,9 +160,10 @@ test('stdio takes folders as file_roots; the downloads folder is the default; th
     await new Promise(r => child.on('exit', r));
     return stderr;
   };
-  // On Windows the registry may name a moved Downloads folder outside the test home.
-  const dl = C.downloadsDir({ env: isolatedEnv(home), homedir: home });
-  assert.match(await start([]), new RegExp(`file roots ${dl.replace(/[\\.]/g, '\\$&')} \\(default\\)`));
+  const first = await start([]);
+  const want = expectedDefault(home, first);
+  if (want.dir) assert.ok(first.includes(`file roots ${want.dir} (default)`), first);
+  if (want.source && want.source.includes('registry')) assert.match(first, /\nbrickproof-adb: warning: the Downloads folder is uncertain: the registry could not be read: /);
   const dir = path.join(home, 'phone files');
   assert.match(await start([dir, '${user_config.file_roots}', '']), new RegExp(`file roots ${dir.replace(/[\\.]/g, '\\$&')}, store`));
   assert.match(await start([], { BRICKPROOF_FILE_ROOTS: '' }), /file roots none, store/);
@@ -157,7 +178,6 @@ test('.mcpb: an empty file_roots field passes no folder, so the Downloads defaul
   const { args, env: menv } = manifest.server.mcp_config;
   const home = tmpDir();
   fs.mkdirSync(path.join(home, 'Downloads'));
-  const dl = C.downloadsDir({ env: isolatedEnv(home), homedir: home });
   const root = path.resolve(__dirname, '..');
   // How a launcher may render an empty field: the placeholder left as it is,
   // an empty string, or no argument at all.
@@ -169,7 +189,9 @@ test('.mcpb: an empty file_roots field passes no folder, so the Downloads defaul
     child.stderr.on('data', c => (stderr += c));
     child.stdin.end();
     await new Promise(r => child.on('exit', r));
-    assert.ok(stderr.includes(`file roots ${dl} (default)`), `${JSON.stringify(argv.slice(1))}: ${stderr}`);
+    const want = expectedDefault(home, stderr);
+    assert.ok(want.dir === undefined || stderr.includes(`file roots ${want.dir} (default)`), `${JSON.stringify(argv.slice(1))}: ${stderr}`);
+    assert.ok(!/file roots none/.test(stderr), 'a folder that exists in the home is always found');
   }
 });
 

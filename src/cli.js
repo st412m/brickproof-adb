@@ -73,7 +73,12 @@ function startBackground(s) {
 
 function rootsText(s, src) {
   if (!s.file_roots.length) return 'none';
-  return s.file_roots.join(', ') + (src.file_roots === 'default' ? ' (default)' : '');
+  return s.file_roots.join(', ') + (String(src.file_roots).startsWith('default') ? ' (default)' : '');
+}
+
+// The start lines that follow the first one: a doubtful Downloads folder.
+function startWarnings(loaded) {
+  return loaded.downloadsWarning ? [`brickproof-adb: warning: ${loaded.downloadsWarning}`] : [];
 }
 
 function settingsLine(loaded, adb) {
@@ -135,7 +140,7 @@ async function serveCommand(rest) {
   const port = server.address().port;
   const hosts = s.allowed_hosts;
   const hostsSuffix = localGuards && hosts.length ? `, allowed hosts ${hosts.join(', ')}` : '';
-  const lines = [`brickproof-adb ${VERSION} on ${s.host}:${port}, ${settingsLine(loaded, adb)}${hostsSuffix}${H.bindNote(localGuards)}`];
+  const lines = [`brickproof-adb ${VERSION} on ${s.host}:${port}, ${settingsLine(loaded, adb)}${hostsSuffix}${H.bindNote(localGuards)}`, ...startWarnings(loaded)];
   if (!localGuards && hosts.length)
     lines.push('brickproof-adb: note: allowed_hosts is not used on a non-local bind (there are no Host/Origin checks to relax)');
   if (tok.legacy)
@@ -178,7 +183,7 @@ async function stdioCommand(args) {
   const { adb } = initServer(loaded);
   const { serveStdio } = require('./stdio');
   const { closed } = serveStdio();
-  process.stderr.write(`brickproof-adb ${VERSION} on stdio, ${settingsLine(loaded, adb)}\n`);
+  process.stderr.write([`brickproof-adb ${VERSION} on stdio, ${settingsLine(loaded, adb)}`, ...startWarnings(loaded)].join('\n') + '\n');
   startBackground(s);
   closed.then(() => process.exit(0));
   return null;

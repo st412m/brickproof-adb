@@ -224,12 +224,37 @@ test('Windows downloadsDir: User Shell Folders, then Shell Folders, then <home>\
 });
 
 test('Windows PowerShell transport: a non-ASCII path comes back intact', { skip: process.platform !== 'win32' && 'Windows only' }, () => {
-  // A longer limit than the 5 s of the start: the whole suite runs in parallel.
-  const out = C.runPowerShell("[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('D:\\Загрузки\\Ünïcødé'))\n'-'", { timeout: 20000 });
-  assert.notEqual(out, null, 'powershell.exe ran');
-  assert.deepEqual(C.parseShellFolders(out), { user: 'D:\\Загрузки\\Ünïcødé', shell: null });
+  // The limit of the start itself (REGISTRY_TIMEOUT_MS).
+  const r = C.runPowerShellResult("[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('D:\\Загрузки\\Ünïcødé'))\n'-'");
+  assert.equal(r.error, undefined, 'powershell.exe ran');
+  assert.deepEqual(C.parseShellFolders(r.stdout), { user: 'D:\\Загрузки\\Ünïcødé', shell: null });
   const real = C.readShellFolders();
-  assert.ok(real === null || (typeof real === 'object' && 'user' in real && 'shell' in real), 'the real registry read never throws');
+  assert.ok(typeof real.error === 'string' || ('user' in real && 'shell' in real), 'the real registry read never throws');
+  assert.equal(C.REGISTRY_TIMEOUT_MS, 15000);
+  const slow = C.runPowerShellResult('Start-Sleep -Seconds 5', { timeout: 50 });
+  assert.equal(slow.error, 'timed out after 0.05 s', 'a timeout names itself');
+});
+
+test('a registry read that failed is said: in the source of file_roots and in a warning for the start', () => {
+  const home = tmpDir();
+  const dl = path.join(home, 'Downloads');
+  const load = (extra = {}) => C.loadConfig({ env: { HOME: home }, homedir: home, cwd: home, platform: 'win32',
+    shellFolders: () => ({ error: 'timed out after 15 s' }), ...extra });
+  const none = load();
+  assert.deepEqual(none.settings.file_roots, []);
+  assert.equal(none.sources.file_roots, `default: the registry could not be read: timed out after 15 s; ${path.win32.join(home, 'Downloads')} not found`);
+  assert.equal(none.downloadsWarning, `the Downloads folder is uncertain: the registry could not be read: timed out after 15 s; ${path.win32.join(home, 'Downloads')} not found; set file_roots to choose the folder`);
+  fs.mkdirSync(dl);
+  const used = load({ isDir: p => p === path.win32.join(home, 'Downloads') });
+  assert.deepEqual(used.settings.file_roots, [path.resolve(path.win32.join(home, 'Downloads'))]);
+  assert.equal(used.sources.file_roots, `default: the registry could not be read: timed out after 15 s; ${path.win32.join(home, 'Downloads')} used`);
+  const ok = C.loadConfig({ env: { HOME: home }, homedir: home, cwd: home, platform: 'win32', shellFolders: () => null, isDir: () => false });
+  assert.equal(ok.sources.file_roots, 'default: no Downloads folder found');
+  assert.equal(ok.downloadsWarning, null);
+  const set = load({ env: { HOME: home, BRICKPROOF_FILE_ROOTS: '' } });
+  assert.equal(set.downloadsWarning, null, 'file_roots set: the registry is not read');
+  assert.deepEqual(C.findDownloads({ platform: 'win32', env: {}, homedir: 'C:\\Users\\me', isDir: () => false, shellFolders: () => ({ error: 'x' }) }),
+    { dir: null, registryError: 'x', fallback: 'C:\\Users\\me\\Downloads' });
 });
 
 test('an unresolved ${user_config.x} or empty value of a launcher counts as not set', () => {
