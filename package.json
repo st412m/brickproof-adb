@@ -1,0 +1,42 @@
+{
+  "name": "brickproof-adb",
+  "version": "1.0.0",
+  "mcpName": "io.github.st412m/brickproof-adb",
+  "description": "Lets an AI assistant look after your own Android devices over ADB without bricking them.",
+  "license": "MIT",
+  "author": "st412m",
+  "homepage": "https://github.com/st412m/brickproof-adb#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/st412m/brickproof-adb.git"
+  },
+  "bugs": "https://github.com/st412m/brickproof-adb/issues",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "adb",
+    "android",
+    "android-tv",
+    "claude"
+  ],
+  "type": "commonjs",
+  "bin": {
+    "brickproof-adb": "src/main.js"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.17"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "jpeg-js": "0.4.4",
+    "pngjs": "7.0.0"
+  }
+}

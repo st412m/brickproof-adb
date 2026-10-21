@@ -1,0 +1,76 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --omit=optional
+      - name: Syntax check
+        shell: bash
+        run: for f in src/*.js test/*.js; do node --check "$f"; done
+      # The glob is quoted: node expands it itself.
+      - name: Tests
+        run: node --test "test/*.test.js"
+      - name: Image pipeline
+        run: node src/main.js check --offline || true
+
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --omit=optional
+      - name: YAML
+        run: >-
+          pipx run yamllint==1.38.0 --strict
+          -d "{extends: default, rules: {document-start: disable,
+          line-length: {max: 160}, truthy: {check-keys: false}}}"
+          compose.example.yaml .github/workflows/ci.yml .github/workflows/image.yml .github/workflows/mcpb.yml
+      - name: Documentation examples
+        run: node tools/check-doc-examples.mjs
+      - name: Secret scan
+        run: node tools/scan-secrets.mjs
+      # One version in package.json, CHANGELOG, the Dockerfile pin, server.json
+      # and compose.example.yaml; server.json limits; the package contents.
+      - name: Release consistency
+        run: node tools/check-release.mjs
+      - name: Fixtures are reproducible
+        run: node tools/make-image-fixtures.mjs --check
+      # The Claude Desktop extension manifest; the CLI version is pinned in
+      # tools/pack-mcpb.mjs.
+      - name: MCPB manifest
+        run: npx -y @anthropic-ai/mcpb@2.1.2 validate manifest.json
+
+  # Time of the image pipeline on ARM, for the documentation: HA Green and a
+  # Raspberry Pi are slower than this runner. Never fails on time.
+  perf-arm:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=optional
+      - name: check --offline (adb is not installed here; only the image lines matter)
+        run: node src/main.js check --offline || true

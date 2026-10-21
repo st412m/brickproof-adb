@@ -1,0 +1,13 @@
+{
+ "$comment": "The 1.4.0 screenshot pipeline (resize '1024x1024>' -quality 70 to JPEG, then %w %h %[fx:mean] %[fx:standard_deviation] of the written JPEG) run with ImageMagick 7.1.2-30 Q8 (@imagemagick/magick-wasm 0.0.43, wasm32) on test/fixtures/*.png, 2026-10-20. Not the production binary (7.1.2-15 Q16, Alpine): same algorithm, quantum depth differs.",
+ "source": "ImageMagick 7.1.2-30 Q8 (magick-wasm 0.0.43)",
+ "px": 1024,
+ "quality": 70,
+ "fixtures": {
+  "black.png": { "W": 1080, "H": 2340, "w": 473, "h": 1024, "mean": 0.0039216, "sd": 0, "dark": true },
+  "dark-below.png": { "W": 1920, "H": 1080, "w": 1024, "h": 576, "mean": 0.025914, "sd": 0.0068193, "dark": true },
+  "dark-above.png": { "W": 1920, "H": 1080, "w": 1024, "h": 576, "mean": 0.035889, "sd": 0.012813, "dark": false },
+  "mid.png": { "W": 1080, "H": 2400, "w": 461, "h": 1024, "mean": 0.50316, "sd": 0.13984, "dark": false },
+  "light.png": { "W": 3840, "H": 2160, "w": 1024, "h": 576, "mean": 0.88294, "sd": 0.054849, "dark": false }
+ }
+}

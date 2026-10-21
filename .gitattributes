@@ -1,0 +1,8 @@
+# LF in every checkout, Windows included: tests and tools read these files as text.
+* text=auto eol=lf
+# Scripts and the Dockerfile run inside Linux containers: LF even on a Windows checkout.
+*.sh text eol=lf
+Dockerfile* text eol=lf
+# Image fixtures are compared by content: never convert their bytes.
+*.png binary
+*.jpg binary

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.st412m/brickproof-adb",
+  "title": "brickproof-adb",
+  "description": "Maintain your own Android devices and TV boxes over ADB with dry runs, guards and rollback",
+  "repository": {
+    "url": "https://github.com/st412m/brickproof-adb",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "brickproof-adb",
+      "version": "1.0.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "BRICKPROOF_ADB",
+          "description": "Path of the adb executable; optional, default adb on PATH",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "filepath"
+        },
+        {
+          "name": "BRICKPROOF_FILE_ROOTS",
+          "description": "Host directories adb_push, adb_pull and adb_install may use, separated by ; on Windows and : elsewhere; optional",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "BRICKPROOF_CONFIG",
+          "description": "Path of the JSON config file; optional",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "filepath"
+        }
+      ]
+    }
+  ]
+}

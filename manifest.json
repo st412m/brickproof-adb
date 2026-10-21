@@ -1,0 +1,98 @@
+{
+  "manifest_version": "0.3",
+  "name": "brickproof-adb",
+  "display_name": "brickproof-adb",
+  "version": "1.0.0",
+  "description": "Lets Claude look after your own Android devices and TV boxes over ADB without bricking them.",
+  "long_description": "Claude gets the screen, the input and the package manager of your Android devices, over USB or the network, with guard rails: every package change is a dry run first, packages the device cannot live without are refused, a package serving something on your network right now is not touched, and everything applied goes into a snapshot that one call rolls back. Needs adb (Android SDK Platform-Tools) on this computer; brickproof-adb finds it, or downloads it with `brickproof-adb get-adb`.",
+  "author": {
+    "name": "st412m",
+    "url": "https://github.com/st412m"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/st412m/brickproof-adb"
+  },
+  "homepage": "https://github.com/st412m/brickproof-adb",
+  "documentation": "https://github.com/st412m/brickproof-adb#readme",
+  "support": "https://github.com/st412m/brickproof-adb/issues",
+  "license": "MIT",
+  "icon": "icon.png",
+  "keywords": ["adb", "android", "android-tv", "tv", "phone"],
+  "server": {
+    "type": "node",
+    "entry_point": "src/main.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/src/main.js", "${user_config.file_roots}"],
+      "env": {
+        "BRICKPROOF_ALLOW_SHELL": "${user_config.allow_shell}",
+        "BRICKPROOF_ALLOW_UNINSTALL": "${user_config.allow_uninstall}",
+        "BRICKPROOF_DEVICES": "${user_config.devices}",
+        "BRICKPROOF_ADB": "${user_config.adb_path}",
+        "BRICKPROOF_SETTINGS_UI": "the extension settings in Claude Desktop"
+      }
+    }
+  },
+  "user_config": {
+    "file_roots": {
+      "type": "directory",
+      "title": "Folders for files",
+      "description": "Folders on this computer the assistant may copy files from and to, and install APKs from. Empty: the Downloads folder of this computer, which the server finds by itself.",
+      "multiple": true,
+      "required": false
+    },
+    "allow_shell": {
+      "type": "boolean",
+      "title": "Allow any shell command",
+      "description": "Lets the assistant run any command on the device, past every guard rail. Off unless you need it.",
+      "required": false,
+      "default": false
+    },
+    "allow_uninstall": {
+      "type": "boolean",
+      "title": "Allow uninstalling",
+      "description": "Lets the assistant uninstall apps (with a backup) instead of only disabling them.",
+      "required": false,
+      "default": false
+    },
+    "devices": {
+      "type": "string",
+      "title": "TV addresses",
+      "description": "Optional: network addresses to connect at start, separated by commas (192.0.2.50 or 192.0.2.50:5555). You can leave it empty: the assistant finds devices and remembers them.",
+      "required": false
+    },
+    "adb_path": {
+      "type": "file",
+      "title": "adb program",
+      "description": "Optional: the adb program to use. Empty: brickproof-adb finds one.",
+      "required": false
+    }
+  },
+  "tools": [
+    { "name": "adb_devices", "description": "List devices; discover=true finds devices on the network" },
+    { "name": "adb_connect", "description": "Connect a network device" },
+    { "name": "adb_pair", "description": "Pair an Android 11+ device over Wireless debugging" },
+    { "name": "adb_disconnect", "description": "Disconnect a network device" },
+    { "name": "adb_shell", "description": "Run a shell command (off unless allowed)" },
+    { "name": "adb_screenshot", "description": "Take a screenshot" },
+    { "name": "adb_ui_dump", "description": "List on-screen elements with tap points" },
+    { "name": "adb_tap", "description": "Tap" },
+    { "name": "adb_swipe", "description": "Swipe or long-press" },
+    { "name": "adb_text", "description": "Type text" },
+    { "name": "adb_key", "description": "Send a key" },
+    { "name": "adb_find_and_tap", "description": "Find an element by its label and activate it" },
+    { "name": "adb_install", "description": "Install an app (dry run by default), or list the installable files" },
+    { "name": "adb_uninstall", "description": "Uninstall an app" },
+    { "name": "adb_push", "description": "Copy a file to the device" },
+    { "name": "adb_pull", "description": "Copy a file from the device" },
+    { "name": "adb_logcat", "description": "Read recent log lines" },
+    { "name": "adb_app", "description": "Manage packages with dry runs, guards and rollback" }
+  ],
+  "compatibility": {
+    "platforms": ["darwin", "win32"],
+    "runtimes": {
+      "node": ">=22.17"
+    }
+  }
+}

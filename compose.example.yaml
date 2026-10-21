@@ -1,0 +1,43 @@
+# brickproof-adb over Streamable HTTP in Docker. Copy to compose.yaml and adjust.
+#
+# Network devices (ip:5555, wireless debugging) work as they are. USB devices
+# work only on a Linux host: pass the USB bus in (devices: below), give the
+# "node" user (uid 1000) access to its device nodes, and stop the host's own
+# adb server while the container runs; two adb servers cannot share one USB
+# interface. Docker Desktop on Windows and macOS does not pass USB devices in.
+#
+# The token: generated on the first start and kept in the data volume; show it
+# with `docker compose exec brickproof-adb brickproof-adb token`. To bring your
+# own instead, put BRICKPROOF_TOKEN=<at least 32 characters> in a .env file
+# next to this one (git-ignored) and uncomment env_file below.
+services:
+  brickproof-adb:
+    image: ghcr.io/st412m/brickproof-adb:1.0.0
+    # Or build the image from this repository instead of pulling it:
+    # build: .
+    restart: unless-stopped
+    # env_file: .env
+    environment:
+      # Host files for adb_push, adb_pull and adb_install: the mount below.
+      BRICKPROOF_FILE_ROOTS: /files
+      # Connected at start; ip means ip:5555. Commas or spaces between hosts.
+      # BRICKPROOF_DEVICES: "192.0.2.50, 192.0.2.51:5555"
+      # adb_devices discover=true checks port 5555 only in these subnets here:
+      # the container does not see the home network's adapters or mDNS.
+      # BRICKPROOF_SCAN_SUBNETS: "192.168.77.0/24"
+      # BRICKPROOF_ALLOW_SHELL: "true"
+    ports:
+      # Loopback only: put a TLS reverse proxy in front for remote clients.
+      # "3200:3200" opens it to the local network, where only the token protects it.
+      - "127.0.0.1:3200:3200"
+    volumes:
+      # The token, the snapshot store (/data/snapshots) and the adb keys
+      # (/data/.android): keep this volume across updates.
+      - data:/data
+      - /srv/android-files:/files
+    # USB on a Linux host only:
+    # devices:
+    #   - /dev/bus/usb:/dev/bus/usb
+
+volumes:
+  data:
