@@ -95,7 +95,9 @@ test('adb_connect: a trusting device that says unauthorized for a moment is conn
     { match: '^devices$', stdout: 'List of devices attached\n192.0.2.73:5555\tdevice\n' },
   ]);
   const saved = { ...session.CONNECT_TIMING };
-  Object.assign(session.CONNECT_TIMING, { pollMs: 20, unauthorizedMs: 2000 });
+  // The state changes by the count of calls; the window is far longer than any
+  // machine needs for the second look.
+  Object.assign(session.CONNECT_TIMING, { pollMs: 20, unauthorizedMs: 10 * 60 * 1000 });
   try {
     assert.equal((await session.connect({ host: '192.0.2.73' }))[0].text, 'connected to 192.0.2.73:5555\nRemembered 192.0.2.73:5555: the server reconnects it when it starts.');
   } finally {

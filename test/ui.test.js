@@ -31,20 +31,24 @@ test('the dump output: XML after the marker, uiautomator errors before it', () =
 });
 
 test('dumps of one device run one at a time; another device does not wait', async () => {
+  // The dumps of "slow" answer only once the test opens the gate: the order
+  // follows from the queue, not from the speed of the machine.
+  const gate = path.join(tmpDir(), 'open');
   const fake = useFakeAdb([
-    { match: '-s slow shell', delayMs: 300, stdout: `dumped to\n__BRICKPROOF_XML__\n${XML}` },
+    { match: '-s slow shell', waitFor: gate, stdout: `dumped to\n__BRICKPROOF_XML__\n${XML}` },
     { match: 'shell', stdout: `dumped to\n__BRICKPROOF_XML__\n${XML}` },
   ]);
-  const t0 = Date.now();
   const order = [];
-  await Promise.all([
-    U.dumpXml('slow').then(() => order.push(['slow1', Date.now() - t0])),
-    U.dumpXml('slow').then(() => order.push(['slow2', Date.now() - t0])),
-    U.dumpXml('fast').then(() => order.push(['fast', Date.now() - t0])),
-  ]);
-  const at = Object.fromEntries(order);
-  assert.ok(at.fast < at.slow1, JSON.stringify(order));
-  assert.ok(at.slow2 - at.slow1 >= 250, `the second dump of one device waits for the first: ${JSON.stringify(order)}`);
+  const slowCalls = () => fake.log().filter(a => a[1] === 'slow').length;
+  const slow1 = U.dumpXml('slow').then(() => order.push('slow1'));
+  const slow2 = U.dumpXml('slow').then(() => order.push('slow2'));
+  await U.dumpXml('fast').then(() => order.push('fast'));
+  assert.deepEqual(order, ['fast'], 'the other device answered while the first dump of "slow" still waits');
+  assert.ok(slowCalls() <= 1, 'the second dump of "slow" has not started');
+  fs.writeFileSync(gate, '');
+  await Promise.all([slow1, slow2]);
+  assert.deepEqual(order, ['fast', 'slow1', 'slow2']);
+  assert.equal(slowCalls(), 2);
   const names = fake.log().map(a => /brickproof_ui_[0-9a-f]{8}\.xml/.exec(a.join(' '))[0]);
   assert.equal(new Set(names).size, 3, 'a random file per dump');
 });
@@ -177,8 +181,11 @@ const ADB_IME = 'com.android.adbkeyboard/.AdbIME';
 const REMOTE = 'com.google.android.tv.remote.service/.ImeBridgeService';
 
 // The fake device: the input method setting answers `imes` one after another
-// (the last one from then on).
-async function typeUnicode(imes, shown) {
+// (the last one from then on), by the count of calls. The wait for ADBKeyBoard
+// is far longer than any machine needs to reach its answer, so the result does
+// not depend on speed; a test that expects ADBKeyBoard never to come passes a
+// short windowMs, which only decides when the tool gives up.
+async function typeUnicode(imes, shown, { windowMs = 10 * 60 * 1000 } = {}) {
   const rules = [
     ...(shown === undefined ? [] : [{ match: 'dumpsys input_method', stdout: `  mInputShown=${shown}\n` }]),
     { match: 'pm list packages com\\.android\\.adbkeyboard', stdout: 'package:com.android.adbkeyboard\n' },
@@ -189,7 +196,7 @@ async function typeUnicode(imes, shown) {
   ];
   const fake = useFakeAdb(rules);
   const saved = { ...U.IME_TIMING };
-  Object.assign(U.IME_TIMING, { pollMs: 10, windowMs: 200 });
+  Object.assign(U.IME_TIMING, { pollMs: 1, windowMs });
   try {
     return { result: await U.typeText({ serial: '192.0.2.38:5555', text: 'Привет' }).then(r => r[0].text, e => e), log: fake.log().map(a => a.slice(3).join(' ')) };
   } finally {
@@ -205,13 +212,14 @@ test('adb_text unicode: ADBKeyBoard takes the keyboard - typed; the previous inp
 });
 
 test('adb_text unicode: another input method keeps the keyboard - an error naming it, nothing sent; restored', async () => {
-  const { result, log } = await typeUnicode([LATIN, REMOTE]);
+  // ADBKeyBoard never comes here: a 1 ms window ends the wait after one look.
+  const { result, log } = await typeUnicode([LATIN, REMOTE], undefined, { windowMs: 1 });
   assert.ok(result instanceof Error);
   assert.equal(result.message, `Nothing was typed: the input method is ${REMOTE} instead of ADBKeyBoard, so non-Latin text cannot be typed now. ` +
     'The keyboard is held by a connected Google TV remote (the Google TV app on a phone, or the Android TV Remote integration in Home Assistant); while it is connected, only Latin text can be typed (adb_text with ASCII works).');
   assert.ok(!log.some(c => c.startsWith('am broadcast')), 'the broadcast was not sent');
   assert.equal(log[log.length - 1], `ime set ${LATIN}`);
-  const other = await typeUnicode([LATIN, 'com.example.keyboard/.Ime']);
+  const other = await typeUnicode([LATIN, 'com.example.keyboard/.Ime'], undefined, { windowMs: 1 });
   assert.equal(other.result.message, 'Nothing was typed: the input method is com.example.keyboard/.Ime instead of ADBKeyBoard, so non-Latin text cannot be typed now.');
 });
 
@@ -305,9 +313,14 @@ test('stepDirections: overlap decides the axis, a containing focus counts from t
 // A TV box that shows these screens one after another, one per dump.
 const node = (attrs, [l, t, r, b]) => `<node ${attrs} clickable="true" bounds="[${l},${t}][${r},${b}]"/>`;
 const screenXml = nodes => `<?xml version="1.0"?><hierarchy>${nodes.join('')}</hierarchy>`;
+// The walk's 25 s clock budget is not a setting: the clock stands still during
+// the walk, so a slow machine cannot hit it; the walk ends by its steps.
 async function walkOn(serial, screens, args) {
   const saved = { ...U.WALK_TIMING };
   Object.assign(U.WALK_TIMING, { keyMs: 1, centerMs: 1 });
+  const realNow = Date.now;
+  const frozen = realNow();
+  Date.now = () => frozen;
   const fake = useFakeAdb([
     { match: 'pm list features', stdout: 'feature:android.software.leanback\nfeature:android.software.leanback_only\n' },
     { match: 'dumpsys window', stdout: 'mCurrentFocus=Window{1 u0 com.example.launcher/.Home}\n' },
@@ -318,6 +331,7 @@ async function walkOn(serial, screens, args) {
     const r = await U.findAndTap({ serial, ...args }).then(x => x[0].text, e => e);
     return { r, keys: fake.log().map(a => a.slice(3).join(' ')).filter(c => c.startsWith('input keyevent')).map(c => c.replace('input keyevent DPAD_', '')) };
   } finally {
+    Date.now = realNow;
     Object.assign(U.WALK_TIMING, saved);
   }
 }

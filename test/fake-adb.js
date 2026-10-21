@@ -5,10 +5,12 @@
  * (adb.js useTestRunner). It does not know adb: it answers from rules.
  *
  * FAKE_ADB_RULES  JSON file: [{ match, stdout, stdoutFile, stderr, code,
- *                 delayMs, echo, once }]. The first rule whose `match` (a
- *                 regex) matches the arguments joined by spaces answers.
- *                 `echo` prints the argv as JSON; `once` answers one call
- *                 only. No rule: stderr and exit 1.
+ *                 delayMs, waitFor, echo, once }]. The first rule whose
+ *                 `match` (a regex) matches the arguments joined by spaces
+ *                 answers. `echo` prints the argv as JSON; `once` answers one
+ *                 call only; `waitFor` (a path) answers once that file
+ *                 exists, so a test decides when, not the clock. No rule:
+ *                 stderr and exit 1.
  * FAKE_ADB_LOG    every call's argv is appended as a JSON line.
  */
 const fs = require('fs');
@@ -37,5 +39,7 @@ function answer() {
   process.exitCode = rule.code || 0;
 }
 
-if (rule.delayMs) setTimeout(answer, rule.delayMs);
+if (rule.waitFor) {
+  const poll = setInterval(() => { if (fs.existsSync(rule.waitFor)) { clearInterval(poll); answer(); } }, 10);
+} else if (rule.delayMs) setTimeout(answer, rule.delayMs);
 else answer();

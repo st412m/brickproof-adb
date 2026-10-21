@@ -87,7 +87,7 @@ test('main.js loaded by require() from another script (how Claude Desktop loads 
 
 test('cli.js does nothing on require()', () => {
   const r = require('child_process').spawnSync(process.execPath, ['-e', `require(${JSON.stringify(path.resolve(__dirname, '..', 'src', 'cli.js'))})`],
-    { input: JSON.stringify(INIT) + '\n', encoding: 'utf8', timeout: 20000 });
+    { input: JSON.stringify(INIT) + '\n', encoding: 'utf8', timeout: 5 * 60 * 1000 });
   assert.equal(r.status, 0);
   assert.equal(r.stdout, '');
   assert.equal(r.stderr, '');

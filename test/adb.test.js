@@ -151,7 +151,7 @@ test('spawnAdb: stdout goes into the file, a timeout kills the client', async ()
   const dir = tmpDir();
   const src = path.join(dir, 'src.bin');
   fs.writeFileSync(src, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3]));
-  useFakeAdb([{ match: '^exec-out', stdoutFile: src }, { match: '^slow', delayMs: 5000, stdout: 'late' }]);
+  useFakeAdb([{ match: '^exec-out', stdoutFile: src }, { match: '^slow', delayMs: 10 * 60 * 1000, stdout: 'late' }]);
   const out = path.join(dir, 'out.bin');
   let fd = fs.openSync(out, 'w');
   const r = await A.spawnAdb(['exec-out', 'screencap', '-p'], fd);
@@ -164,7 +164,7 @@ test('spawnAdb: stdout goes into the file, a timeout kills the client', async ()
   const s = await A.spawnAdb(['slow'], fd, { timeout: 300 });
   fs.closeSync(fd);
   assert.equal(s.timedOut, true);
-  assert.ok(Date.now() - t0 < 4000);
+  assert.ok(Date.now() - t0 < 5 * 60 * 1000, 'killed, not waited out');
 });
 
 test('adb() and spawnAdb() without adb: the same "not found" text', async () => {

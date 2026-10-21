@@ -59,10 +59,10 @@ test('the probe: an open port is found, a closed one not; only connect and close
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
   try {
-    const r = await D.probeHosts(['127.0.0.1'], port, { timeoutMs: 1000 });
+    const r = await D.probeHosts(['127.0.0.1'], port, { timeoutMs: 60000 });
     assert.deepEqual(r.open, ['127.0.0.1']);
     assert.equal(r.probed, 1);
-    const closed = await D.probeHosts(['127.0.0.1'], port + 1 === 65536 ? port - 1 : port + 1, { timeoutMs: 1000 });
+    const closed = await D.probeHosts(['127.0.0.1'], port + 1 === 65536 ? port - 1 : port + 1, { timeoutMs: 60000 });
     assert.deepEqual(closed.open, []);
     await new Promise(r => setTimeout(r, 50));
     assert.deepEqual(received, [], 'nothing was sent');
@@ -96,7 +96,7 @@ test('the probe: a host that only times out gets a second, longer try; a refused
   const hosts = ['192.0.2.60', '192.0.2.61', '192.0.2.62', '192.0.2.63'];
   // .62 answers only on the second pass (cold ARP), .61 refuses, .60 is open, .63 never answers.
   const f = fakeConnect((h, pass) => (h === '192.0.2.60' ? 'open' : h === '192.0.2.61' ? 'refused' : h === '192.0.2.62' && pass === 2 ? 'open' : 'silent'));
-  const r = await D.probeHosts(hosts, 5555, { timeoutMs: 20, retryTimeoutMs: 60, budgetMs: 2000, connect: f.connect });
+  const r = await D.probeHosts(hosts, 5555, { timeoutMs: 20, retryTimeoutMs: 60, budgetMs: 10 * 60 * 1000, connect: f.connect });
   assert.deepEqual(r.open, ['192.0.2.60', '192.0.2.62']);
   assert.equal(r.timedOut, false);
   assert.equal(r.probed, 4);
@@ -111,10 +111,12 @@ test('the probe: the second pass keeps to the same budget', async () => {
   const hosts = Array.from({ length: 40 }, (_, i) => `192.0.2.${i + 1}`);
   const f = fakeConnect(() => 'silent');
   const t0 = Date.now();
-  const r = await D.probeHosts(hosts, 5555, { timeoutMs: 20, retryTimeoutMs: 5000, parallel: 40, retryParallel: 4, budgetMs: 300, connect: f.connect });
+  // The second pass alone would take 10 minutes: ending near the budget is
+  // the budget at work, whatever the speed of the machine.
+  const r = await D.probeHosts(hosts, 5555, { timeoutMs: 20, retryTimeoutMs: 10 * 60 * 1000, parallel: 40, retryParallel: 4, budgetMs: 1000, connect: f.connect });
   const took = Date.now() - t0;
   assert.equal(r.timedOut, true, 'stopped at the limit');
-  assert.ok(took >= 280 && took < 1500, `${took} ms`);
+  assert.ok(took >= 950 && took < 5 * 60 * 1000, `${took} ms`);
   assert.ok(f.calls.some(c => c.pass === 2), 'the second pass started');
 });
 
@@ -124,9 +126,10 @@ test('the probe stops at its budget', async () => {
   const { EventEmitter } = require('events');
   const silent = () => Object.assign(new EventEmitter(), { setTimeout() {}, destroy() {} });
   const t0 = Date.now();
-  const r = await D.probeHosts(hosts, 5555, { timeoutMs: 5000, parallel: 4, budgetMs: 300, connect: silent });
+  // These sockets never settle: only the budget can end the scan.
+  const r = await D.probeHosts(hosts, 5555, { timeoutMs: 10 * 60 * 1000, parallel: 4, budgetMs: 300, connect: silent });
   assert.equal(r.timedOut, true);
-  assert.ok(Date.now() - t0 < 2000);
+  assert.ok(Date.now() - t0 < 5 * 60 * 1000);
 });
 
 // The adb server was already running.
